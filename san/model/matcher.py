@@ -142,7 +142,7 @@ class HungarianMatcher(nn.Module):
                 # Compute the focal loss between masks
                 cost_mask = batch_sigmoid_ce_loss_jit(out_mask, tgt_mask)
 
-                # Compute the dice loss betwen masks
+                # Compute the dice loss between masks
                 cost_dice = batch_dice_loss_jit(out_mask, tgt_mask)
 
             # Final cost matrix
@@ -153,6 +153,7 @@ class HungarianMatcher(nn.Module):
             )
             C = C.reshape(num_queries, -1).cpu()
 
+            # C[C.isnan()] = 1e6
             indices.append(linear_sum_assignment(C))
 
         return [

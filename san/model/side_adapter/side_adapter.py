@@ -67,7 +67,7 @@ class MLPMaskDecoder(nn.Module):
             self.bias_scaling = nn.Identity()
 
     def forward(
-        self, query: torch.Tensor, x: torch.Tensor
+        self, query: torch.Tensor, x: torch.Tensor, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         # query: [B,N,C]
         # x: [B,C,H,W]
@@ -144,7 +144,7 @@ class RegionwiseSideAdapterNetwork(nn.Module):
         fusion_layers = nn.ModuleDict(
             {
                 f"layer_{tgt_idx}": build_fusion_layer(
-                    fusion_type, input_shape[src_idx].channels, vit.num_features
+                    fusion_type, input_shape[src_idx].channels, vit.num_features, cfg=cfg
                 )
                 for tgt_idx, src_idx in x2side_map.items()
             }
@@ -180,11 +180,16 @@ class RegionwiseSideAdapterNetwork(nn.Module):
             features = [features[-1]]
         mask_preds = []
         attn_biases = []
+        vq_losses = []
+        query_tokens = []
         for feature in features:
             mask_pred, attn_bias = self.mask_decoder(**feature)
             mask_preds.append(mask_pred)
             attn_biases.append(attn_bias)
-        return mask_preds, attn_biases
+            vq_losses.append(feature['vq_loss'])
+            query_tokens.append(feature['query'])
+
+        return mask_preds, attn_biases, vq_losses, query_tokens
 
     def forward_features(
         self, image: torch.Tensor, clip_features: List[torch.Tensor]
@@ -213,11 +218,13 @@ class RegionwiseSideAdapterNetwork(nn.Module):
         )  # B, Q+L, C
         x = x + pos_embed
         x = self.vit_model.norm_pre(x)
-        x = self.fuse(0, x, clip_features, (h, w))
+        x, loss_vq = self.fuse(0, x, clip_features, (h, w))
         outs = []
         for i, blk in enumerate(self.vit_model.blocks, start=1):
+            # x = torch.cat([x[:, :-L, ...], blk(x[:, -L:, ...])], dim=1)
             x = blk(x)
-            x = self.fuse(i, x, clip_features, (h, w))
+            x, loss_vq_i = self.fuse(i, x, clip_features, (h, w))
+            loss_vq += loss_vq_i
             if i in self.deep_supervision_idxs:
                 outs.append(
                     {
@@ -225,6 +232,7 @@ class RegionwiseSideAdapterNetwork(nn.Module):
                         "x": x[:, -L:, ...]
                         .permute(0, 2, 1)
                         .reshape(x.shape[0], x.shape[-1], h, w),
+                        "vq_loss": loss_vq,
                     }
                 )
 
@@ -240,21 +248,25 @@ class RegionwiseSideAdapterNetwork(nn.Module):
         clip_features: List[torch.Tensor],
         spatial_shape: Tuple[int, int],
     ) -> torch.Tensor:
+        loss_vq = torch.tensor(0.).to(x.device)
         if block_idx in self.fusion_map:
             src_idx = self.fusion_map[block_idx]
             L = spatial_shape[0] * spatial_shape[1]
-            x = torch.cat(
-                [
-                    x[:, :-L, ...],
-                    self.fusion_layers[f"layer_{block_idx}"](
-                        x[:, -L:, ...], clip_features[src_idx], spatial_shape
-                    ),
-                ],
-                dim=1,
-            )
+            # x = torch.cat(
+            #     [
+            #         x[:, :-L, ...],
+            #         self.fusion_layers[f"layer_{block_idx}"](
+            #             x[:, -L:, ...], clip_features[src_idx], spatial_shape
+            #         ),
+            #     ],
+            #     dim=1,
+            # )
+
+            # VQ fusion
+            x, loss_vq = self.fusion_layers[f"layer_{block_idx}"](x, clip_features[src_idx], spatial_shape)
             log_first_n(
                 logging.INFO,
                 f"fuse clip {src_idx} to {block_idx}",
                 len(self.fusion_map),
             )
-        return x
+        return x, loss_vq

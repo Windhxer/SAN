@@ -529,7 +529,7 @@ PCONTEXT_FULL_SEM_SEG_CATEGORIES = [
 
 
 def register_all_pcontext_59(root):
-    root = os.path.join(root, "pcontext")
+    root = os.path.join(root, "pcontext-59")
     for name, dirname in [("train", "train"), ("val", "val")]:
         image_dir = os.path.join(root, dirname, "image")
         gt_dir = os.path.join(root, dirname, "label")
@@ -550,7 +550,7 @@ def register_all_pcontext_59(root):
 
 
 def register_all_pcontext_full(root):
-    root = os.path.join(root, "pcontext_full")
+    root = os.path.join(root, "pcontext-full")
     for name, dirname in [("train", "train"), ("val", "val")]:
         image_dir = os.path.join(root, dirname, "image")
         gt_dir = os.path.join(root, dirname, "label")

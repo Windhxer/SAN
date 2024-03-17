@@ -1,3 +1,8 @@
+# EXP_NAME=vqsan_xattn && CUDA_VISIBLE_DEVICES=2 nohup python train_net.py --config-file configs/san_clip_vit_res4_coco.yaml --num-gpus 1 SOLVER.IMS_PER_BATCH 4 OUTPUT_DIR output/$EXP_NAME WANDB.NAME $EXP_NAME DATASETS.TEST "('coco_2017_test_stuff_sem_seg',)" > $EXP_NAME.log &
+import os
+os.environ['DETECTRON2_DATASETS'] = 'datasets'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '1,2,3'
+
 try:
     # ignore ShapelyDeprecationWarning from fvcore
     import warnings
@@ -282,6 +287,6 @@ if __name__ == "__main__":
         args.num_gpus,
         num_machines=args.num_machines,
         machine_rank=args.machine_rank,
-        dist_url=args.dist_url,
+        dist_url='auto', # args.dist_url='tcp://127.0.0.1:50155'
         args=(args,),
     )

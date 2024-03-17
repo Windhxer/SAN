@@ -20,6 +20,7 @@ from .clip_utils import (
 from .criterion import SetCriterion
 from .matcher import HungarianMatcher
 from .side_adapter import build_side_adapter_network
+from .layers import SLSTransformerDecoder
 
 
 @META_ARCH_REGISTRY.register()
@@ -33,6 +34,7 @@ class SAN(nn.Module):
         side_adapter_network: nn.Module,
         ov_classifier: PredefinedOvClassifier,
         criterion: SetCriterion,
+        query_proj: nn.Module,
         size_divisibility: int,
         asymetric_input: bool = True,
         clip_resolution: float = 0.5,
@@ -46,6 +48,7 @@ class SAN(nn.Module):
         self.sem_seg_postprocess_before_inference = sem_seg_postprocess_before_inference
         self.size_divisibility = size_divisibility
         self.criterion = criterion
+        self.query_proj = query_proj
 
         self.side_adapter_network = side_adapter_network
         self.clip_visual_extractor = clip_visual_extractor
@@ -62,6 +65,8 @@ class SAN(nn.Module):
         # Loss parameters
         no_object_weight = cfg.MODEL.SAN.NO_OBJECT_WEIGHT
         # loss weights
+        vq_weight = cfg.MODEL.SAN.VQ_WEIGHT
+        percept_weights = cfg.MODEL.SAN.PERCEPT_WEIGHT
         class_weight = cfg.MODEL.SAN.CLASS_WEIGHT
         dice_weight = cfg.MODEL.SAN.DICE_WEIGHT
         mask_weight = cfg.MODEL.SAN.MASK_WEIGHT
@@ -74,11 +79,17 @@ class SAN(nn.Module):
             num_points=cfg.MODEL.SAN.TRAIN_NUM_POINTS,
         )
 
+        layer_num = len(cfg.MODEL.SIDE_ADAPTER.FUSION_MAP) - 1
+        assert len(percept_weights) == layer_num
         weight_dict = {
+            "loss_vq": vq_weight,
             "loss_ce": class_weight,
             "loss_mask": mask_weight,
             "loss_dice": dice_weight,
         }
+        for i in range(layer_num):
+            weight_dict[f"loss_percept_layer{i+1}"] = percept_weights[i]
+
         aux_weight_dict = {}
         for i in range(len(cfg.MODEL.SIDE_ADAPTER.DEEP_SUPERVISION_IDXS) - 1):
             aux_weight_dict.update({k + f"_{i}": v for k, v in weight_dict.items()})
@@ -97,10 +108,20 @@ class SAN(nn.Module):
         )
         ## end of copy
 
+        query_proj = nn.Linear(240, 768, bias=False)
+
         model, _, preprocess = open_clip.create_model_and_transforms(
             cfg.MODEL.SAN.CLIP_MODEL_NAME,
             pretrained=cfg.MODEL.SAN.CLIP_PRETRAINED_NAME,
         )
+        visual_decoder = nn.ModuleList([SLSTransformerDecoder(
+            dim=768, 
+            depth=8, 
+            heads=16, 
+            dim_head=48, 
+            mlp_dim=3072,
+            #, downsample=cfg.MODEL.SAN.CLIP_RESOLUTION
+        ) for i in range(layer_num)]) 
         ov_classifier = LearnableBgOvClassifier(
             model, templates=get_predefined_templates(cfg.MODEL.SAN.CLIP_TEMPLATE_SET)
         )
@@ -112,11 +133,13 @@ class SAN(nn.Module):
         )
         clip_rec_head = RecWithAttnbiasHead(
             model.visual,
+            visual_decoder,
+            log_dir=cfg.OUTPUT_DIR,
             first_layer_idx=cfg.MODEL.SAN.FEATURE_LAST_LAYER_IDX,
             frozen_exclude=cfg.MODEL.SAN.CLIP_DEEPER_FROZEN_EXCLUDE,
             cross_attn=cfg.MODEL.SAN.REC_CROSS_ATTN,
-            sos_token_format=cfg.MODEL.SAN.SOS_TOKEN_FORMAT,
-            sos_token_num=cfg.MODEL.SIDE_ADAPTER.NUM_QUERIES,
+            SLS_TOKEN_FORMAT=cfg.MODEL.SAN.SLS_TOKEN_FORMAT,
+            sls_token_num=cfg.MODEL.SIDE_ADAPTER.NUM_QUERIES,
             downsample_method=cfg.MODEL.SAN.REC_DOWNSAMPLE_METHOD,
         )
 
@@ -135,6 +158,7 @@ class SAN(nn.Module):
             ),
             "ov_classifier": ov_classifier,
             "criterion": criterion,
+            "query_proj": query_proj,
             "size_divisibility": cfg.MODEL.SAN.SIZE_DIVISIBILITY,
             "asymetric_input": cfg.MODEL.SAN.ASYMETRIC_INPUT,
             "clip_resolution": cfg.MODEL.SAN.CLIP_RESOLUTION,
@@ -163,6 +187,7 @@ class SAN(nn.Module):
                 * self.ov_classifier.get_classifier_by_dataset_name(dataset_names[0])
             )  # C+1,ndim
         images = [x["image"].to(self.device) for x in batched_inputs]
+        normalized_images = torch.cat([(x * 2. / 255. - 1.).unsqueeze(0) for x in images], dim=0)
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.size_divisibility)
         clip_input = images.tensor
@@ -171,18 +196,28 @@ class SAN(nn.Module):
                 clip_input, scale_factor=self.clip_resolution, mode="bilinear"
             )
         clip_image_features = self.clip_visual_extractor(clip_input)
-        mask_preds, attn_biases = self.side_adapter_network(
+        mask_preds, attn_biases, vq_losses, query_tokens = self.side_adapter_network(
             images.tensor, clip_image_features
         )
         # !! Could be optimized to run in parallel.
-        mask_embs = [
-            self.clip_rec_head(clip_image_features, attn_bias, normalize=True)
-            for attn_bias in attn_biases
-        ]  # [B,N,C]
+        query_token = self.query_proj(query_tokens[-1].permute(1, 0, 2))
+        
+        # mask_embs = [
+        #     self.clip_rec_head(clip_image_features, attn_bias, query_token, normalize=True)
+        #     for attn_bias in attn_biases
+        # ]  # [B,N,C]
+        mask_embs = []
+        loss_percepts = []
+        clip_image_features['input'] = normalized_images
+        for attn_bias in attn_biases:
+            mask_emb, loss_mse = self.clip_rec_head(clip_image_features, attn_bias, query_token, normalize=True)
+            mask_embs.append(mask_emb)
+            loss_percepts.append(loss_mse)
         mask_logits = [
             torch.einsum("bqc,nc->bqn", mask_emb, ov_classifier_weight)
             for mask_emb in mask_embs
         ]
+
         if self.training:
             if "instances" in batched_inputs[0]:
                 gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
@@ -204,6 +239,15 @@ class SAN(nn.Module):
             }
             # bipartite matching-based loss
             losses = self.criterion(outputs, targets)
+            losses["loss_vq"] = vq_losses[-1]
+            for l in range(len(loss_percepts[-1])):
+                losses[f"loss_percept_layer{l+1}"] = loss_percepts[-1][l]
+
+            if "aux_outputs" in outputs:
+                for i, aux_outputs in enumerate(outputs["aux_outputs"]):
+                    losses[f"loss_vq_{i}"] = vq_losses[i]
+                    for l in range(len(loss_percepts[i])):
+                        losses[f"loss_percept_layer{l+1}_{i}"] = loss_percepts[i][l]
 
             for k in list(losses.keys()):
                 if k in self.criterion.weight_dict:

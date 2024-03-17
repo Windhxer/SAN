@@ -1,7 +1,14 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Copyright (c) Facebook, Inc. and its affiliates.
 import os
+import pickle as pkl
+from pathlib import Path
 
-from detectron2.data import DatasetCatalog, MetadataCatalog
-from detectron2.data.datasets import load_sem_seg
+import cv2
+import numpy as np
+import tqdm
+from PIL import Image
 
 ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "wall", "id": 2978, "trainId": 0},
@@ -15,11 +22,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "sidewalk, pavement", "id": 2377, "trainId": 8},
     {"name": "earth, ground", "id": 838, "trainId": 9},
     {"name": "cabinet", "id": 350, "trainId": 10},
-    {
-        "name": "person, individual, someone, somebody, mortal, soul",
-        "id": 1831,
-        "trainId": 11,
-    },
+    {"name": "person, individual, someone, somebody, mortal, soul", "id": 1831, "trainId": 11},
     {"name": "grass", "id": 1125, "trainId": 12},
     {"name": "windowpane, window", "id": 3055, "trainId": 13},
     {"name": "car, auto, automobile, machine, motorcar", "id": 401, "trainId": 14},
@@ -66,11 +69,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "fireplace, hearth, open fireplace", "id": 943, "trainId": 55},
     {"name": "pillow", "id": 1869, "trainId": 56},
     {"name": "screen door, screen", "id": 2251, "trainId": 57},
-    {
-        "name": "toilet, can, commode, crapper, pot, potty, stool, throne",
-        "id": 2793,
-        "trainId": 58,
-    },
+    {"name": "toilet, can, commode, crapper, pot, potty, stool, throne", "id": 2793, "trainId": 58},
     {"name": "skyscraper", "id": 2423, "trainId": 59},
     {"name": "grandstand, covered stand", "id": 1121, "trainId": 60},
     {"name": "box", "id": 266, "trainId": 61},
@@ -136,11 +135,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "hovel, hut, hutch, shack, shanty", "id": 1282, "trainId": 101},
     {"name": "apparel, wearing apparel, dress, clothes", "id": 38, "trainId": 102},
     {"name": "minibike, motorbike", "id": 1563, "trainId": 103},
-    {
-        "name": "animal, animate being, beast, brute, creature, fauna",
-        "id": 29,
-        "trainId": 104,
-    },
+    {"name": "animal, animate being, beast, brute, creature, fauna", "id": 29, "trainId": 104},
     {"name": "chandelier, pendant, pendent", "id": 480, "trainId": 105},
     {"name": "step, stair", "id": 2569, "trainId": 106},
     {"name": "booth, cubicle, stall, kiosk", "id": 247, "trainId": 107},
@@ -149,11 +144,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "sconce", "id": 2243, "trainId": 110},
     {"name": "pond", "id": 1941, "trainId": 111},
     {"name": "trade name, brand name, brand, marque", "id": 2833, "trainId": 112},
-    {
-        "name": "bannister, banister, balustrade, balusters, handrail",
-        "id": 120,
-        "trainId": 113,
-    },
+    {"name": "bannister, banister, balustrade, balusters, handrail", "id": 120, "trainId": 113},
     {"name": "bag", "id": 95, "trainId": 114},
     {"name": "traffic light, traffic signal, stoplight", "id": 2836, "trainId": 115},
     {"name": "gazebo", "id": 1087, "trainId": 116},
@@ -239,11 +230,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "pot", "id": 1974, "trainId": 188},
     {"name": "footbridge, overcrossing, pedestrian bridge", "id": 1013, "trainId": 189},
     {"name": "shower", "id": 2356, "trainId": 190},
-    {
-        "name": "bag, traveling bag, travelling bag, grip, suitcase",
-        "id": 97,
-        "trainId": 191,
-    },
+    {"name": "bag, traveling bag, travelling bag, grip, suitcase", "id": 97, "trainId": 191},
     {"name": "bulletin board, notice board", "id": 318, "trainId": 192},
     {"name": "confessional booth", "id": 592, "trainId": 193},
     {"name": "trunk, tree trunk, bole", "id": 2885, "trainId": 194},
@@ -396,11 +383,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "place mat", "id": 1896, "trainId": 321},
     {"name": "tomb", "id": 2800, "trainId": 322},
     {"name": "big top", "id": 190, "trainId": 323},
-    {
-        "name": "gas pump, gasoline pump, petrol pump, island dispenser",
-        "id": 3131,
-        "trainId": 324,
-    },
+    {"name": "gas pump, gasoline pump, petrol pump, island dispenser", "id": 3131, "trainId": 324},
     {"name": "lockers", "id": 1463, "trainId": 325},
     {"name": "cage", "id": 357, "trainId": 326},
     {"name": "finger", "id": 929, "trainId": 327},
@@ -410,11 +393,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "mat", "id": 1509, "trainId": 331},
     {"name": "stands", "id": 2539, "trainId": 332},
     {"name": "aquarium, fish tank, marine museum", "id": 3116, "trainId": 333},
-    {
-        "name": "streetcar, tram, tramcar, trolley, trolley car",
-        "id": 2615,
-        "trainId": 334,
-    },
+    {"name": "streetcar, tram, tramcar, trolley, trolley car", "id": 2615, "trainId": 334},
     {"name": "napkin, table napkin, serviette", "id": 1644, "trainId": 335},
     {"name": "dummy", "id": 818, "trainId": 336},
     {"name": "booklet, brochure, folder, leaflet, pamphlet", "id": 242, "trainId": 337},
@@ -445,11 +424,7 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
     {"name": "mug", "id": 1619, "trainId": 362},
     {"name": "barbecue", "id": 125, "trainId": 363},
     {"name": "trailer", "id": 2838, "trainId": 364},
-    {
-        "name": "toilet tissue, toilet paper, bathroom tissue",
-        "id": 2792,
-        "trainId": 365,
-    },
+    {"name": "toilet tissue, toilet paper, bathroom tissue", "id": 2792, "trainId": 365},
     {"name": "organ", "id": 1695, "trainId": 366},
     {"name": "dishrag, dishcloth", "id": 746, "trainId": 367},
     {"name": "island", "id": 1343, "trainId": 368},
@@ -954,45 +929,79 @@ ADE20K_SEM_SEG_FULL_CATEGORIES = [
 ]
 
 
-def _get_ade20k_full_meta():
-    # Id 0 is reserved for ignore_label, we change ignore_label for 0
-    # to 255 in our pre-processing, so all ids are shifted by 1.
-    stuff_ids = [k["id"] for k in ADE20K_SEM_SEG_FULL_CATEGORIES]
-    assert len(stuff_ids) == 847, len(stuff_ids)
+def loadAde20K(file):
+    fileseg = file.replace(".jpg", "_seg.png")
+    with Image.open(fileseg) as io:
+        seg = np.array(io)
 
-    # For semantic segmentation, this mapping maps from contiguous stuff id
-    # (in [0, 91], used in models) to ids in the dataset (used for processing results)
-    stuff_dataset_id_to_contiguous_id = {k: i for i, k in enumerate(stuff_ids)}
-    stuff_classes = [k["name"] for k in ADE20K_SEM_SEG_FULL_CATEGORIES]
+    R = seg[:, :, 0]
+    G = seg[:, :, 1]
+    ObjectClassMasks = (R / 10).astype(np.int32) * 256 + (G.astype(np.int32))
 
-    ret = {
-        "stuff_dataset_id_to_contiguous_id": stuff_dataset_id_to_contiguous_id,
-        "stuff_classes": stuff_classes,
-    }
-    return ret
+    return {"img_name": file, "segm_name": fileseg, "class_mask": ObjectClassMasks}
 
 
-def register_all_ade20k_full(root):
-    root = os.path.join(root, "ADE20K_2021_17_01")
-    meta = _get_ade20k_full_meta()
-    for name, dirname in [("train", "training"), ("val", "validation")]:
-        image_dir = os.path.join(root, "images_detectron2", dirname)
-        gt_dir = os.path.join(root, "annotations_detectron2", dirname)
-        name = f"ade20k_full_sem_seg_{name}"
-        DatasetCatalog.register(
-            name,
-            lambda x=image_dir, y=gt_dir: load_sem_seg(
-                y, x, gt_ext="tif", image_ext="jpg"
-            ),
+if __name__ == "__main__":
+    dataset_dir = Path(os.getenv("DETECTRON2_DATASETS", "datasets"))
+    index_file = dataset_dir / "ADE20K_2021_17_01" / "index_ade20k.pkl"
+    with open(index_file, "rb") as f:
+        index_ade20k = pkl.load(f)
+
+    id_map = {}
+    for cat in ADE20K_SEM_SEG_FULL_CATEGORIES:
+        id_map[cat["id"]] = cat["trainId"]
+
+    # make output dir
+    for name in ["training", "validation"]:
+        image_dir = dataset_dir / "ADE20K_2021_17_01" / "images_detectron2" / name
+        image_dir.mkdir(parents=True, exist_ok=True)
+        annotation_dir = dataset_dir / "ADE20K_2021_17_01" / "annotations_detectron2" / name
+        annotation_dir.mkdir(parents=True, exist_ok=True)
+
+    # process image and gt
+    for i, (folder_name, file_name) in tqdm.tqdm(
+        enumerate(zip(index_ade20k["folder"], index_ade20k["filename"])),
+        total=len(index_ade20k["filename"]),
+    ):
+        split = "validation" if file_name.split("_")[1] == "val" else "training"
+        info = loadAde20K(str(dataset_dir / folder_name / file_name))
+
+        # resize image and label
+        img = np.asarray(Image.open(info["img_name"]))
+        lab = np.asarray(info["class_mask"])
+
+        h, w = img.shape[0], img.shape[1]
+        max_size = 512
+        resize = True
+        if w >= h > max_size:
+            h_new, w_new = max_size, round(w / float(h) * max_size)
+        elif h >= w > max_size:
+            h_new, w_new = round(h / float(w) * max_size), max_size
+        else:
+            resize = False
+
+        if resize:
+            img = cv2.resize(img, (w_new, h_new), interpolation=cv2.INTER_LINEAR)
+            lab = cv2.resize(lab, (w_new, h_new), interpolation=cv2.INTER_NEAREST)
+
+        assert img.dtype == np.uint8
+        assert lab.dtype == np.int32
+
+        # apply label conversion and save into uint16 images
+        output = np.zeros_like(lab, dtype=np.uint16) + 65535
+        for obj_id in np.unique(lab):
+            if obj_id in id_map:
+                output[lab == obj_id] = id_map[obj_id]
+
+        output_img = dataset_dir / "ADE20K_2021_17_01" / "images_detectron2" / split / file_name
+        output_lab = (
+            dataset_dir
+            / "ADE20K_2021_17_01"
+            / "annotations_detectron2"
+            / split
+            / file_name.replace(".jpg", ".tif")
         )
-        MetadataCatalog.get(name).set(
-            stuff_classes=meta["stuff_classes"][:],
-            image_root=image_dir,
-            sem_seg_root=gt_dir,
-            evaluator_type="sem_seg",
-            ignore_label=65535,  # NOTE: gt is saved in 16-bit TIFF images
-        )
+        Image.fromarray(img).save(output_img)
 
-
-_root = os.getenv("DETECTRON2_DATASETS", "datasets")
-register_all_ade20k_full(_root)
+        assert output.dtype == np.uint16
+        Image.fromarray(output).save(output_lab)

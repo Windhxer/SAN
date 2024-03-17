@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
 import os
 
 from detectron2.data import DatasetCatalog, MetadataCatalog
@@ -196,24 +197,20 @@ def _get_coco_stuff_meta():
     return ret
 
 
-def register_all_coco_stuff_164k(root):
-    root = os.path.join(root, "coco")
+def register_all_coco_stuff_10k(root):
+    root = os.path.join(root, "coco", "coco_stuff_10k")
     meta = _get_coco_stuff_meta()
-
     for name, image_dirname, sem_seg_dirname in [
-        ("train", "train2017", "stuffthingmaps_detectron2/train2017"),
-        ("test", "val2017", "stuffthingmaps_detectron2/val2017"),
+        ("train", "images_detectron2/train", "annotations_detectron2/train"),
+        ("test", "images_detectron2/test", "annotations_detectron2/test"),
     ]:
         image_dir = os.path.join(root, image_dirname)
         gt_dir = os.path.join(root, sem_seg_dirname)
-        all_name = f"coco_2017_{name}_stuff_sem_seg"
+        name = f"coco_2017_{name}_stuff_10k_sem_seg"
         DatasetCatalog.register(
-            all_name,
-            lambda x=image_dir, y=gt_dir: load_sem_seg(
-                y, x, gt_ext="png", image_ext="jpg"
-            ),
+            name, lambda x=image_dir, y=gt_dir: load_sem_seg(y, x, gt_ext="png", image_ext="jpg")
         )
-        MetadataCatalog.get(all_name).set(
+        MetadataCatalog.get(name).set(
             image_root=image_dir,
             sem_seg_root=gt_dir,
             evaluator_type="sem_seg",
@@ -223,4 +220,4 @@ def register_all_coco_stuff_164k(root):
 
 
 _root = os.getenv("DETECTRON2_DATASETS", "datasets")
-register_all_coco_stuff_164k(_root)
+register_all_coco_stuff_10k(_root)

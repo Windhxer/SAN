@@ -1188,7 +1188,7 @@ var isIETouch = window.navigator.msPointerEnabled && window.navigator.msMaxTouch
 var isAndroid = navigator.userAgent.match(/(Android);?[\s\/]+([\d.]+)?/);
 var isiPad = navigator.userAgent.match(/(iPad).*OS\s([\d_]+)/);
 var isiPod = navigator.userAgent.match(/(iPod)(.*OS\s([\d_]+))?/);
-var isiPhone = !navigator.userAgent.match(/(iPad).*OS\s([\d_]+)/) && navigator.userAgent.match(/(iPhone\sOS)\s([\d_]+)/);
+var isiPhone = !navigator.userAgent.match(/(iPad).*OS\s([\d_]+)/) && navigator.userAgent.match(/(iPhone\sls)\s([\d_]+)/);
 var isSafari = navigator.userAgent.toLowerCase().indexOf('safari') >= 0 && navigator.userAgent.toLowerCase().indexOf('chrome') < 0 && navigator.userAgent.toLowerCase().indexOf('android') < 0;
 var isUiWebView = /(iPhone|iPod|iPad).*AppleWebKit(?!.*Safari)/i.test(navigator.userAgent);
 

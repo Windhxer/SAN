@@ -114,4 +114,4 @@ class WandbWriter(EventWriter):
         wandb.log(stats, step=storage.iter)
 
     def close(self):
-        wandb.finish()
+        wandb.finish(quiet=True)

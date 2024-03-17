@@ -1,4 +1,4 @@
-_BASE_: Base-coco-stuff-164K-171.yaml
+_BASE_: Base-coco-stuff-10K-171.yaml
 MODEL:
   META_ARCHITECTURE: "SAN"
 SOLVER:

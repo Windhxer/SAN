@@ -100,7 +100,7 @@ def convert_to_trainID(
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Convert VOC2021 annotations to mmsegmentation format"
+        description="Convert VOC2012 annotations to mmsegmentation format"
     )  # noqa
     parser.add_argument("voc_path", help="voc path")
     parser.add_argument("-o", "--out_dir", help="output path")
